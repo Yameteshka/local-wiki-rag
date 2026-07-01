@@ -36,3 +36,6 @@ share/wheels/
 .installed.cfg
 *.egg
 MANIFEST
+screen.png
+scripts/
+notebooks/
