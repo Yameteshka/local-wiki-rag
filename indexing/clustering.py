@@ -98,10 +98,6 @@ class SklearnMiniBatchKMeans:
         return centroids, labels.astype(np.int32)
 
 
-# ---------------------------------------------------------------------------
-# Spherical k-means — geometry-aware variant
-# ---------------------------------------------------------------------------
-
 
 class SphericalKMeans:
     """K-means on L2-normalized vectors using cosine distance.

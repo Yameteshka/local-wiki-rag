@@ -95,10 +95,6 @@ class IVFIndex:
         self.inverted_lists: dict[int, list[int]] = {}  # cid -> [positions, ...]
         self.stats: BuildStats = BuildStats()
 
-    # ------------------------------------------------------------------
-    # Building
-    # ------------------------------------------------------------------
-
     def build(self, source: EmbeddingSource) -> None:
         """Train centroids and assign all vectors from ``source``.
 
@@ -111,14 +107,12 @@ class IVFIndex:
         t0 = time.perf_counter()
         timings: dict[str, float] = {}
 
-        # ---- 1. Materialize and preprocess all vectors ----
         t = time.perf_counter()
         ids, vecs = self._stream_all(source)
         timings["stream"] = time.perf_counter() - t
 
         d_idx = vecs.shape[1]
 
-        # ---- 2. Train clusterer ----
         t = time.perf_counter()
         if (
             self.cfg.sample_size_for_training is not None
@@ -139,12 +133,10 @@ class IVFIndex:
             centroids = self._l2_normalize(centroids)
         self.centroids = centroids.astype(np.float32)
 
-        # ---- 3. Assign all vectors to centroids ----
         t = time.perf_counter()
         assignments = self._assign_in_batches(vecs)
         timings["assign"] = time.perf_counter() - t
 
-        # ---- 4. Build inverted lists ----
         t = time.perf_counter()
         self.assignments = assignments
         self.vec_ids = ids
@@ -188,10 +180,6 @@ class IVFIndex:
         norms = np.linalg.norm(x, axis=1, keepdims=True) + 1e-12
         return x / norms
 
-    # ------------------------------------------------------------------
-    # Assignment
-    # ------------------------------------------------------------------
-
     def _assign_in_batches(
         self, vecs: np.ndarray, batch_size: int = 16_384
     ) -> np.ndarray:
@@ -218,10 +206,7 @@ class IVFIndex:
             lists[int(cid)].append(pos)
         return lists
 
-    # ------------------------------------------------------------------
-    # Query
-    # ------------------------------------------------------------------
-
+ 
     def get_candidates(self, query: np.ndarray, nprobe: int = 8) -> np.ndarray:
         """Return external vec_ids of all candidates for the query.
 
@@ -246,10 +231,7 @@ class IVFIndex:
         if not positions:
             return np.empty(0, dtype=np.int64)
         return self.vec_ids[np.asarray(positions, dtype=np.int64)]
-
-    # ------------------------------------------------------------------
-    # Incremental add
-    # ------------------------------------------------------------------
+    
 
     def add(self, vec_id: int, vec: np.ndarray) -> None:
         """Add a single vector without retraining centroids.
@@ -271,9 +253,6 @@ class IVFIndex:
         self.inverted_lists.setdefault(cid, []).append(position)
         self.stats.n_vectors += 1
 
-    # ------------------------------------------------------------------
-    # Persistence
-    # ------------------------------------------------------------------
 
     def save(self, path: str | Path) -> None:
         """Persist as a directory with separate artifacts.
