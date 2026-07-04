@@ -43,3 +43,4 @@ indexing/
 results.md
 .DS_Store
 data/embeds.npy
+prod/test_indexes.py
