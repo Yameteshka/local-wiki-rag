@@ -19,7 +19,6 @@ def main():
     print(f"\n[1/4] Loading raw embeddings from {RAW_EMBEDDINGS_PATH}...")
     if not RAW_EMBEDDINGS_PATH.exists():
         print(f"ERROR: File not found at {RAW_EMBEDDINGS_PATH}")
-        print("Please ensure Teammate 2 has placed the .npy file in the 'data/' folder.")
         sys.exit(1)
 
     start_load = time.time()
@@ -43,8 +42,34 @@ def main():
     sq8_store.build(raw_embeddings)
     print(f"Built in {time.time() - start_sq8:.2f}s")
 
-    # 4. Summary
-    print("\n[4/4] Storage Build Summary:")
+    # 4. Evaluate reconstruction quality
+    print("\n[4/5] Evaluating SQ8 reconstruction quality...")
+
+    # Random sample 
+    sample_size = 10_000
+    rng = np.random.default_rng(42)
+    sample_indices = rng.choice(raw_embeddings.shape[0], sample_size, replace=False)
+
+    # Original vectors
+    original = raw_embeddings[sample_indices].astype(np.float32)
+
+    # Dequantized vectors
+    reconstructed = sq8_store.get_vectors(sample_indices)
+
+    # Mean Squared Error (MSE)
+    mse = np.mean((original - reconstructed) ** 2)
+
+    # Average Cosine Similarity
+    orig_norm = original / np.linalg.norm(original, axis=1, keepdims=True)
+    recon_norm = reconstructed / np.linalg.norm(reconstructed, axis=1, keepdims=True)
+
+    avg_cosine = np.mean(np.sum(orig_norm * recon_norm, axis=1))
+
+    print(f"MSE: {mse:.8f}")
+    print(f"Average Cosine Similarity: {avg_cosine:.6f}")
+
+    # 5. Summary
+    print("\n[5/5] Storage Build Summary:")
     print("-" * 30)
     print(f"Float32 RAM Footprint: {f32_store.get_memory_footprint():.2f} MB")
     print(f"SQ8 RAM Footprint:     {sq8_store.get_memory_footprint():.2f} MB")
