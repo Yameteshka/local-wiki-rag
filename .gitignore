@@ -38,5 +38,8 @@ share/wheels/
 MANIFEST
 screen.png
 scripts/
-notebooks/
 tasks.md
+indexing/
+results.md
+.DS_Store
+data/embeds.npy
