@@ -38,3 +38,10 @@ share/wheels/
 MANIFEST
 storage_data/
 data/
+screen.png
+tasks.md
+indexing/
+results.md
+.DS_Store
+data/embeds.npy
+prod/test_indexes.py
