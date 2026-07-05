@@ -17,9 +17,12 @@ them as candidate ids.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterator, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Iterator, Protocol, runtime_checkable
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from storage.base_store import BaseVectorStore
 
 
 @runtime_checkable
@@ -98,3 +101,59 @@ class NumpyFileSource:
     def get_by_ids(self, ids: np.ndarray) -> np.ndarray:
         # NumpyFileSource ids are sequential — external id == row index.
         return np.asarray(self._vectors[ids], dtype=np.float32)
+
+
+class StorageBackedSource:
+    """EmbeddingSource adapter over a loaded BaseVectorStore.
+
+    Use this instead of NumpyFileSource once the storage layer has been built
+    (``python scripts/build_storage.py``). Supports both Float32Store and
+    SQ8Store; SQ8Store dequantizes on the fly so callers always get float32.
+
+    Usage::
+
+        from storage import Float32Store   # or SQ8Store
+        from sources import StorageBackedSource
+
+        store = Float32Store()
+        store.load()
+        source = StorageBackedSource(store)
+        index.build(source)
+    """
+
+    def __init__(self, store: "BaseVectorStore"):
+        if store.get_memory_footprint() == 0.0:
+            raise RuntimeError(
+                "Store appears empty — call store.load() before wrapping it."
+            )
+        self._store = store
+        # Probe shape via a single-vector fetch so we don't depend on internals.
+        sample = store.get_vectors(np.array([0], dtype=np.int64))
+        self._dim = int(sample.shape[1])
+        # Derive n_vectors from whichever attribute the store exposes.
+        if hasattr(store, "data") and store.data is not None:
+            self._n = int(store.data.shape[0])
+        elif hasattr(store, "quantized_data") and store.quantized_data is not None:
+            self._n = int(store.quantized_data.shape[0])
+        else:
+            raise RuntimeError("Cannot determine n_vectors from store.")
+        self._ids = np.arange(self._n, dtype=np.int64)
+
+    @property
+    def dim(self) -> int:
+        return self._dim
+
+    @property
+    def n_vectors(self) -> int:
+        return self._n
+
+    def iter_batches(
+        self, batch_size: int
+    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        for start in range(0, self._n, batch_size):
+            end = min(start + batch_size, self._n)
+            indices = self._ids[start:end]
+            yield indices, self._store.get_vectors(indices)
+
+    def get_by_ids(self, ids: np.ndarray) -> np.ndarray:
+        return self._store.get_vectors(ids)

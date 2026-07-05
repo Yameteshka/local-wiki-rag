@@ -10,7 +10,7 @@ DATA_DIR.mkdir(exist_ok=True)
 STORAGE_DIR.mkdir(exist_ok=True)
 
 # --- Data Constants ---
-RAW_EMBEDDINGS_PATH = DATA_DIR / "wikipedia_embeddings_256d.npy" 
+RAW_EMBEDDINGS_PATH = DATA_DIR / "wikipedia_embeddings_256d.npy"
 
 # --- Vector Constants ---
 NUM_VECTORS = 500_000

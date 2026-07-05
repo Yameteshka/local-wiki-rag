@@ -1,6 +1,5 @@
 import numpy as np
 from abc import ABC, abstractmethod
-from typing import Union
 
 class BaseVectorStore(ABC):
     """Abstract base class for Vector Storage implementations."""
@@ -16,10 +15,11 @@ class BaseVectorStore(ABC):
         pass
 
     @abstractmethod
-    def get_vectors(self, indices: np.ndarray) -> np.ndarray:
+    def get_vectors(self, indices: np.ndarray) -> np.ndarray | None:
         """
-        Retrieve specific vectors by their IDs.
-        MUST return float32 arrays so Person 5 can calculate exact distances.
+        Retrieve specific vectors by their indices.
+        MUST return float32 arrays so Search can calculate exact distances.
+        Returns None if the store has not been built or loaded yet.
         """
         pass
 

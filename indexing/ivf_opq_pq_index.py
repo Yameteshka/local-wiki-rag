@@ -1,16 +1,9 @@
-""" This is self-implemented IVF-OPQ-PQ index for production use. This approach showed 
-the best performance in our experiments, and is the recommended recipe for compressed vector search.
+""" This is wrapper around FAISS IVF-OPQ-PQ index for production use.
 
 Pipeline:
     OPQ  — learned rotation, decorrelates dims for balanced PQ subvectors
-    IVF  — spatial partitioning via k-means (nlist Voronoi cells)
-    PQ   — compression to M × nbits bits per vector
-
-Standard settings for a 100k-1M corpus of L2-normalized text embeddings:
-    nlist [512, 1024]
-    M = dim / 8 [96, 128]
-    nbits = 8
-    nprobe = [16, 32]
+    IVF  — spatial partitioning via k-means
+    PQ   — compression to M × nbits bits per vector. Used oppositely to standardSQ
 
 Metric convention: ``cosine`` is implemented as inner product on L2-normalized
 inputs. Set ``normalize=True`` (the default) to have the class do it for you.
@@ -51,13 +44,15 @@ class IVFOPQPQConfig:
         RNG seed for kmeans / OPQ initialization.
     """
 
+
+    'Below are stanard values for corpus of 500k vectors of dim=256'
     dim: int
     nlist: int = 512
     M: int = 32
     nbits: int = 8
     metric: Literal["cosine", "l2", "ip"] = "cosine"
     normalize: bool = True
-    seed: int = 42
+    seed: int = 52
 
     def __post_init__(self) -> None:
         if self.dim % self.M != 0:
@@ -70,16 +65,7 @@ class IVFOPQPQConfig:
 
 
 class IVFOPQPQIndex:
-    """Production index: IVF quantized with OPQ + PQ.
-
-    Lifecycle:
-        cfg = IVFOPQPQConfig(dim=256)
-        idx = IVFOPQPQIndex(cfg)
-        idx.train_add(corpus)                            # one-shot
-        distances, labels = idx.search(queries, k=10, nprobe=16)
-        idx.save("myindex.faiss")
-        idx = IVFOPQPQIndex.load("myindex.faiss")
-    """
+    """Production index: IVF quantized with OPQ + PQ."""
 
     def __init__(self, cfg: IVFOPQPQConfig):
         self.cfg = cfg
@@ -149,8 +135,7 @@ class IVFOPQPQIndex:
         """Return (distances, labels) top-k for each query.
 
         ``nprobe`` controls how many IVF cells to visit at query time.
-        Higher → better recall, higher latency. Sweet spot for 500k
-        corpora is 16-32.
+        Higher is better recall, higher latency. 16 to 32 is usually good
         """
         queries = self._prepare(queries)
         self._set_nprobe(nprobe)
@@ -159,7 +144,7 @@ class IVFOPQPQIndex:
     def _set_nprobe(self, nprobe: int) -> None:
         # Reach through PreTransform wrapper to the IVFPQ inside.
         ivfpq = faiss.downcast_index(self._index.index)
-        ivfpq.nprobe = int(nprobe)
+        ivfpq.nprobe = int(nprobe) # type: ignore
 
     def save(self, path: str | Path) -> None:
         """Serialize both the FAISS index and its config.
