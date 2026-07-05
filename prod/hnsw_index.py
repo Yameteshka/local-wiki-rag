@@ -1,15 +1,4 @@
-"""HNSW graph index — production recipe for high-recall vector search.
-
-Standard settings for a 100k-1M corpus of L2-normalized text embeddings:
-
-    M = 32                    graph degree (higher = better recall, more memory)
-    ef_construction = 200     build quality (higher = slower build, better graph)
-    ef_search = 64            runtime quality (higher = better recall, slower query)
-
-Trade-off vs IVF-OPQ-PQ:
-    - HNSW higher recall, higher memory
-    - IVF-OPQ-PQ lower recall, ~30× less memory
-"""
+"""Wrapper around FAISS HNSW index for production use."""
 
 from __future__ import annotations
 
@@ -109,10 +98,9 @@ class HNSWIndex:
         k: int = 10,
         ef_search: Optional[int] = None,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Return (distances, labels) top-k for each query.
-
-        ``ef_search`` (optional override) — higher = better recall,
-        slower query. Typical sweep: {16, 32, 64, 128, 256}.
+        """
+        Return (distances, labels) top-k for each query.
+        ef_search optionally overrides the runtime search depth
         """
         queries = self._prepare(queries)
         if ef_search is not None:

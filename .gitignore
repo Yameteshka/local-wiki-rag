@@ -37,10 +37,12 @@ share/wheels/
 *.egg
 MANIFEST
 screen.png
-scripts/
 tasks.md
 indexing/
 results.md
 .DS_Store
 data/embeds.npy
 prod/test_indexes.py
+uv.lock
+storage_data/*
+data/*
