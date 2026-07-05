@@ -40,11 +40,11 @@ class HNSWConfig:
 
     dim: int
     M: int = 32
-    ef_construction: int = 200
+    ef_construction: int = 160
     ef_search: int = 64
     metric: Literal["cosine", "l2", "ip"] = "cosine"
     normalize: bool = True
-    seed: int = 42
+    seed: int = 52
 
 
 class HNSWIndex:

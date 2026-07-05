@@ -50,7 +50,7 @@ class IVFOPQPQConfig:
     nlist: int = 512
     M: int = 32
     nbits: int = 8
-    metric: Literal["cosine", "l2", "ip"] = "cosine"
+    metric: Literal["cosine", "l2", "ip"] = "l2"
     normalize: bool = True
     seed: int = 52
 
