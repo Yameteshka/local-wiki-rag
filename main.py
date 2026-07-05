@@ -3,20 +3,14 @@ import requests
 import sqlite3
 import json
 import numpy as np
+from embedder import get_embedding
 from validation import ANNSearch, person4_index, sq8_store, corpus_f32
 
 DB_PATH = "wikipedia.db"
 ann = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
 
-# get_embedding = функция от Человека 2, которая принимает строку и возвращает np.ndarray
-
 def run_vector_search(query_text: str, top_k: int = 3):
-
-    # Векторизация (Ожидаем код от Человека 2)
-    # query_vector = get_embedding(query_text)
-
-    # ВРЕМЕННАЯ ЗАГЛУШКА ВЕКТОРА (чтобы код не падал, пока Человек 2 не отдаст свою часть)
-    query_vector = np.random.randn(256).astype(np.float32)
+    query_vector = get_embedding(query_text)
 
     ids, scores = ann.search(query_vector, top_k=top_k)
 
