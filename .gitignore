@@ -36,3 +36,5 @@ share/wheels/
 .installed.cfg
 *.egg
 MANIFEST
+storage_data/
+data/
