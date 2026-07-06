@@ -38,3 +38,10 @@ share/wheels/
 MANIFEST
 storage_data/
 data/
+*.npy
+*.npz
+
+*.json
+*.sqlite3
+.vscode/
+*.log

@@ -4,10 +4,30 @@ import sqlite3
 import json
 import numpy as np
 from embedder import get_embedding
-from validation import ANNSearch, person4_index, sq8_store, corpus_f32
+from validation import ANNSearch, person4_index
+from storage.sq8_store import SQ8Store
+
+from config import FLOAT32_STORE_PATH
 
 DB_PATH = "wikipedia.db"
-ann = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
+
+
+@st.cache_resource
+def load_search_engines():
+    with st.spinner("Initializing Vector Engine & Loading Matrices..."):
+
+        sq8_store = SQ8Store()
+        sq8_store.load()
+
+        corpus_f32 = np.load(FLOAT32_STORE_PATH)
+
+        ann_engine = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
+
+    return ann_engine
+
+
+ann = load_search_engines()
+
 
 def run_vector_search(query_text: str, top_k: int = 3):
     query_vector = get_embedding(query_text)
