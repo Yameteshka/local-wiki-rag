@@ -9,6 +9,7 @@ from .validation import (
     BenchmarkResult,
     benchmark_engine,
     compute_ground_truth,
+    generate_corpus_queries,
     generate_random_queries,
     print_summary,
 )
@@ -25,6 +26,7 @@ __all__ = [
     "BenchmarkResult",
     "benchmark_engine",
     "compute_ground_truth",
+    "generate_corpus_queries",
     "generate_random_queries",
     "print_summary",
 ]

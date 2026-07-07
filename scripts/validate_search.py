@@ -13,7 +13,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 sys.path.append(str(Path(__file__).parent.parent))
 
-from indexing import IVFOPQPQConfig, IVFOPQPQIndex
+from indexing import IVFOPQPQConfig, IVFOPQPQIndex, IVFFlatIndex, IVFFlatConfig
 from indexing.hnsw_index import HNSWConfig, HNSWIndex
 from search import (
     ANNConfig,
@@ -23,6 +23,7 @@ from search import (
     HNSWSearchConfig,
     benchmark_engine,
     compute_ground_truth,
+    generate_corpus_queries,
     generate_random_queries,
     print_summary,
 )
@@ -31,7 +32,7 @@ from storage import Float32Store, SQ8Store
 TOP_K = 5
 N_QUERIES = 50
 N_CENTROIDS = 512
-N_PROBE = 8
+N_PROBE = 32
 
 # HNSW knobs — M controls graph degree, efSearch is the runtime recall/latency knob.
 HNSW_M = 32
@@ -54,11 +55,11 @@ def main() -> None:
           f"sq8={sq8.get_memory_footprint():.1f}MB")
 
     print("\n[2/5] Training IVF-OPQ-PQ index (this is the ANN stage-1 backbone)...")
-    cfg = IVFOPQPQConfig(dim=D, nlist=N_CENTROIDS, M=D // 8, nbits=8, metric="cosine")
-    ivf = IVFOPQPQIndex(cfg)
-    t0 = time.perf_counter()
-    ivf.train_add(corpus)
-    print(f"      Trained in {time.perf_counter() - t0:.1f}s")
+    # cfg = IVFOPQPQConfig(dim=D, nlist=N_CENTROIDS, M=D // 8, nbits=8, metric="cosine")
+    # ivf = IVFOPQPQIndex(cfg)
+    # t0 = time.perf_counter()
+    # ivf.train_add(corpus)
+    # print(f"      Trained in {time.perf_counter() - t0:.1f}s")
 
     print("\n[3/5] Building HNSW index (Iter 3 backbone)...")
     hnsw_cfg = HNSWConfig(
@@ -71,18 +72,36 @@ def main() -> None:
     hnsw = HNSWIndex(hnsw_cfg)
     t0 = time.perf_counter()
     hnsw.train_add(corpus)
-    print(f"      Built in {time.perf_counter() - t0:.1f}s  ({hnsw!r})")
+    # print(f"      Built in {time.perf_counter() - t0:.1f}s  ({hnsw!r})")
+
+    print("\n[2.5/5] Training IVF index ...")
+    cfg = IVFFlatConfig(dim=D, n_list=N_CENTROIDS, nprobe=64, metric="cosine")
+    ivf_1 = IVFFlatIndex(cfg)
+    t0 = time.perf_counter()
+    ivf_1.train_add(corpus)
+    print(f"      Trained in {time.perf_counter() - t0:.1f}s")
 
     print("\n[4/5] Preparing engines + ground truth...")
     brute = BruteForceSearch(corpus)
-    ann = ANNSearch(
-        ivf_index=ivf,
+    # ann_1 = ANNSearch(
+    #     ivf_index=ivf,
+    #     rerank_store=sq8,
+    #     n_vectors=N,
+    #     config=ANNConfig(n_probe=N_PROBE, n_centroids=N_CENTROIDS),
+    # )
+    
+    ann_2 = ANNSearch(
+        ivf_index=ivf_1,
         rerank_store=sq8,
         n_vectors=N,
         config=ANNConfig(n_probe=N_PROBE, n_centroids=N_CENTROIDS),
     )
+
+    
     hnsw_search = HNSWSearch(hnsw, HNSWSearchConfig(ef_search=HNSW_EF_SEARCH))
-    queries = generate_random_queries(N_QUERIES, D)
+    # Queries must come from the corpus — random vectors are out-of-distribution
+    # and land on cluster boundaries, giving artificially low recall (~0.58).
+    queries = generate_corpus_queries(corpus, N_QUERIES)
     ground_truth = compute_ground_truth(queries, brute, TOP_K)
 
     # HNSW footprint: full float32 vectors + graph edges (~M * 4 bytes/node).
@@ -94,8 +113,12 @@ def main() -> None:
             "BruteForce (Iter 1)", brute, queries, ground_truth, TOP_K,
             corpus_mb=f32.get_memory_footprint(),
         ),
+        # benchmark_engine(
+        #     "ANN/IVFOPQ+SQ8 (Iter 2)", ann_1, queries, ground_truth, TOP_K,
+        #     corpus_mb=sq8.get_memory_footprint(),
+        # ),
         benchmark_engine(
-            "ANN/IVF+SQ8 (Iter 2)", ann, queries, ground_truth, TOP_K,
+            "ANN/IVF", ann_2, queries, ground_truth, TOP_K,
             corpus_mb=sq8.get_memory_footprint(),
         ),
         benchmark_engine(
@@ -105,11 +128,11 @@ def main() -> None:
     ]
     print_summary(results)
 
-    demo_query = queries[0]
-    print("\nExample response (Iteration 2 — ANN, first query):")
-    print(ann.search(demo_query, top_k=TOP_K))
-    print("\nExample response (Iteration 3 — HNSW, first query):")
-    print(hnsw_search.search(demo_query, top_k=TOP_K))
+    # demo_query = queries[0]
+    # print("\nExample response (Iteration 2 — ANN, first query):")
+    # print(ann_1.search(demo_query, top_k=TOP_K))
+    # print("\nExample response (Iteration 3 — HNSW, first query):")
+    # print(hnsw_search.search(demo_query, top_k=TOP_K))
 
 
 if __name__ == "__main__":

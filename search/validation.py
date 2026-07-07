@@ -37,12 +37,38 @@ class BenchmarkResult:
 def generate_random_queries(
     n_queries: int, dim: int, seed: int = 123
 ) -> list[np.ndarray]:
-    """Draw ``n_queries`` unit-norm random query vectors of dim ``dim``."""
+    """Draw ``n_queries`` unit-norm random query vectors of dim ``dim``.
+
+    WARNING: random vectors are out-of-distribution for real embedding corpora.
+    Use ``generate_corpus_queries`` for realistic recall benchmarks.
+    """
     rng = np.random.default_rng(seed)
     queries = []
     for _ in range(n_queries):
         q = rng.standard_normal(dim).astype(np.float32)
         q /= np.linalg.norm(q)
+        queries.append(q)
+    return queries
+
+
+def generate_corpus_queries(
+    corpus: np.ndarray, n_queries: int, seed: int = 123
+) -> list[np.ndarray]:
+    """Sample ``n_queries`` vectors from the corpus as query vectors.
+
+    Mirrors the notebook approach: queries are real embeddings drawn from the
+    same distribution the IVF index was trained on. This gives realistic recall
+    numbers — random vectors are out-of-distribution and artificially deflate
+    recall because they land on cluster boundaries.
+    """
+    rng = np.random.default_rng(seed)
+    idx = rng.choice(len(corpus), size=n_queries, replace=False)
+    queries = []
+    for i in idx:
+        q = corpus[i].astype(np.float32, copy=True)
+        norm = np.linalg.norm(q)
+        if norm > 0:
+            q /= norm
         queries.append(q)
     return queries
 
