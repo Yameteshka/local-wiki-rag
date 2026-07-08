@@ -9,8 +9,8 @@ import requests
 import sqlite3
 import json
 import numpy as np
-from embedder import get_embedding
-from validation import ANNSearch, person4_index, sq8_store, corpus_f32
+from ui.embedder import get_embedding
+from ui.validation import ANNSearch, person4_index, sq8_store, corpus_f32
 
 DB_PATH = "wikipedia.db"
 ann = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
@@ -92,10 +92,14 @@ def retrieve_context(query):
 
 # Integration with OLLAMA
 
+MAX_CHARS_PER_CHUNK = 2500   # keep each source small so 3 chunks fit in num_ctx
+
+
 def generate_answer(query, context_chunks):
     top_3 = context_chunks[:3]
     context_text = "\n\n".join(
-        [f"[Source {i + 1}]: {chunk['title']}\n{chunk['text']}" for i, chunk in enumerate(top_3)]
+        f"[Source {i + 1}]: {chunk['title']}\n{chunk['text'][:MAX_CHARS_PER_CHUNK]}"
+        for i, chunk in enumerate(top_3)
     )
 
     system_prompt = f"""You are a helpful and precise assistant.
@@ -108,15 +112,25 @@ Context:
 """
 
     payload = {
-        "model": "gemma3:1b",
+        "model": "gemma3:4b",
         "prompt": f"{system_prompt}\n\nUser Query: {query}",
-        "stream": False
+        "stream": False,
+        "options": {
+            "num_ctx": 8192,       # Gemma3 supports up to 128k; 8k is plenty for 3 truncated chunks
+            "num_predict": 512,    # cap the answer length
+            "temperature": 0.3,    # keep it grounded in the sources
+        },
     }
 
     try:
-        response = requests.post("http://localhost:11434/api/generate", json=payload)
+        response = requests.post(
+            "http://localhost:11434/api/generate", json=payload, timeout=180
+        )
         response.raise_for_status()
-        return response.json().get("response", "Error generating response."), top_3
+        answer = response.json().get("response", "").strip()
+        if not answer:
+            answer = "Model returned an empty response — try a shorter question or a smaller `num_ctx`."
+        return answer, top_3
     except requests.exceptions.RequestException as e:
         return f"Ollama Connection Error: {e}", top_3
 

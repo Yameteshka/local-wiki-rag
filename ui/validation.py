@@ -52,16 +52,26 @@ except Exception as e:
 
 
 from indexing.ivf_index import IVFFlatConfig, IVFFlatIndex
+from indexing.hnsw_index import HNSWConfig, HNSWIndex
 
 cfg = IVFFlatConfig(
     dim=D,
     n_list=N_CENTROIDS,
     nprobe=N_PROBE,
-    metric="ip",
+    metric="cosine",
 )
-person4_index = IVFFlatIndex(cfg)
 
-print(f"Training IVFFlatIndex ({N_CENTROIDS} centroids) on {N:,} vectors...")
+# cfg = HNSWConfig(
+#     dim=D,
+#     M = 32, 
+#     ef_construction=160, 
+#     metric="cosine"
+# )
+
+person4_index = IVFFlatIndex(cfg)
+# person4_index = HNSWIndex(cfg)
+
+print(f"Training ivf ({N_CENTROIDS} centroids) on {N:,} vectors...")
 t0 = time.perf_counter()
 person4_index.train_add(corpus_f32)
 print(f"Done in {time.perf_counter() - t0:.1f}s")
@@ -81,28 +91,41 @@ class BruteForceSearch:
 
 
 class ANNSearch:
-    def __init__(self, ivf_index, sq8_store, corpus_fallback=None):
-        self.ivf      = ivf_index
+    """Two-stage ANN. Works with both IVFFlatIndex and HNSWIndex.
+
+    Stage 1 pulls candidates from the underlying index; the search kwargs are
+    dispatched by index type (IVF uses ``nprobe``, HNSW uses ``ef_search``).
+    Stage 2 always re-ranks against the exact (SQ8-dequantised) vectors so the
+    final scores are true cosine similarities regardless of the index type.
+    """
+
+    def __init__(self, index, sq8_store, corpus_fallback=None):
+        self.ivf      = index
         self.sq8      = sq8_store
         self.fallback = corpus_fallback   # used when SQ8Store is not available
+        self._is_hnsw = type(index).__name__ == "HNSWIndex"
 
     def search(self, query: np.ndarray, top_k=TOP_K, n_probe=N_PROBE):
         q = query.astype(np.float32)
-        q /= np.linalg.norm(q) + 1e-12   # L2-normalise the query
+        q /= np.linalg.norm(q) + 1e-12
 
-        # Stage 1: IVF compares query against 512 centroids, picks n_probe nearest clusters
-        # request 2× the average cluster size to cover all candidates in visited clusters
-        n_cands = min(N, n_probe * (N // N_CENTROIDS) * 2)
-        _, cand_ids = self.ivf.search(q.reshape(1, -1), k=n_cands, nprobe=n_probe)
+        # Stage 1: index-specific candidate generation.
+        if self._is_hnsw:
+            # HNSW returns exact top-K directly — pull 4× top_k for a light rerank margin.
+            n_cands = min(N, max(top_k * 4, 32))
+            _, cand_ids = self.ivf.search(q.reshape(1, -1), k=n_cands)
+        else:
+            # IVF: request 2× the average cluster size to cover all candidates in visited cells.
+            n_cands = min(N, n_probe * (N // N_CENTROIDS) * 2)
+            _, cand_ids = self.ivf.search(q.reshape(1, -1), k=n_cands, nprobe=n_probe)
+
         cand_ids = cand_ids[0][cand_ids[0] >= 0]   # FAISS pads short results with -1
 
-        # Stage 2: exact cosine similarity only within the selected clusters
-        # SQ8Store.get_vectors() dequantises uint8 → float32 on the fly
+        # Stage 2: exact cosine similarity, either from SQ8Store or fallback float32.
         vecs = self.sq8.get_vectors(cand_ids) if self.sq8 else self.fallback[cand_ids]
         vecs /= np.linalg.norm(vecs, axis=1, keepdims=True)
         scores = vecs @ q
 
-        # pick top_k from the candidate set
         k = min(top_k, len(scores))
         top = np.argpartition(-scores, k - 1)[:k]
         top = top[np.argsort(-scores[top])]
