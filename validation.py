@@ -13,7 +13,7 @@ if device == "cuda":
 
 
 N_CENTROIDS    = 512
-N_PROBE        = 3
+N_PROBE        = 64
 TOP_K          = 5
 N_TEST_QUERIES = 50
 N_SYNTH        = 500_000
@@ -51,41 +51,20 @@ except Exception as e:
     sq8_mb = N * D / 1024**2   # 1 byte per element (uint8)
 
 
-try:
-    from prod.ivf_opq_pq_index import IVFOPQPQConfig, IVFOPQPQIndex
+from indexing.ivf_index import IVFFlatConfig, IVFFlatIndex
 
-    cfg = IVFOPQPQConfig(
-        dim=D,
-        nlist=N_CENTROIDS,   # number of Voronoi cells (centroids)
-        M=D // 8,            # number of PQ subvectors
-        nbits=8,
-        metric="cosine",
-    )
-    person4_index = IVFOPQPQIndex(cfg)
+cfg = IVFFlatConfig(
+    dim=D,
+    n_list=N_CENTROIDS,
+    nprobe=N_PROBE,
+    metric="ip",
+)
+person4_index = IVFFlatIndex(cfg)
 
-    print(f"Training IVFOPQPQIndex ({N_CENTROIDS} centroids) on {N:,} vectors...")
-    t0 = time.perf_counter()
-    person4_index.train_add(corpus_f32)   # k-means clustering + add all vectors
-    print(f"Done in {time.perf_counter() - t0:.1f}s")
-
-except Exception as e:
-    # fallback to plain FAISS IVF with the same number of centroids
-    print(f"IVFOPQPQIndex not available ({e}) — fallback to faiss.IndexIVFFlat")
-    quantizer = faiss.IndexFlatIP(D)
-    _ivf = faiss.IndexIVFFlat(quantizer, D, N_CENTROIDS, faiss.METRIC_INNER_PRODUCT)
-    t0 = time.perf_counter()
-    _ivf.train(corpus_f32)
-    _ivf.add(corpus_f32)
-    print(f"Done in {time.perf_counter() - t0:.1f}s")
-
-    class _FallbackIndex:
-        def __init__(self, idx):
-            self.idx = idx
-        def search(self, queries, k, nprobe=N_PROBE):
-            self.idx.nprobe = nprobe
-            return self.idx.search(queries, k)
-
-    person4_index = _FallbackIndex(_ivf)
+print(f"Training IVFFlatIndex ({N_CENTROIDS} centroids) on {N:,} vectors...")
+t0 = time.perf_counter()
+person4_index.train_add(corpus_f32)
+print(f"Done in {time.perf_counter() - t0:.1f}s")
 
 
 class BruteForceSearch:
@@ -144,9 +123,14 @@ print("Both engines ready")
 rng = np.random.default_rng(123)
 test_queries = []
 
-for _ in range(N_TEST_QUERIES):
-    q = rng.standard_normal(D).astype(np.float32)
-    q /= np.linalg.norm(q)
+# Queries must come from the corpus — random vectors are out-of-distribution
+# and land on cluster boundaries, giving artificially low recall.
+query_indices = rng.choice(N, size=N_TEST_QUERIES, replace=False)
+for idx in query_indices:
+    q = corpus_f32[idx].copy()
+    norm = np.linalg.norm(q)
+    if norm > 0:
+        q /= norm
     # ground truth: exact brute-force top-K — this is what ANN is measured against
     gt_idx, _ = brute.search(q, top_k=TOP_K)
     test_queries.append({"query": q, "gt": set(gt_idx.tolist())})
@@ -224,7 +208,7 @@ plt.show()
 print("Saved benchmark_comparison.png")
 
 fig, ax = plt.subplots(figsize=(7, 4))
-bp = ax.boxplot([br["lats"], ar["lats"]], labels=labels, patch_artist=True,
+bp = ax.boxplot([br["lats"], ar["lats"]], tick_labels=labels, patch_artist=True,
                 medianprops=dict(color="black", linewidth=2))
 for patch, color in zip(bp["boxes"], colors):
     patch.set_facecolor(color)

@@ -44,3 +44,4 @@ prod/test_indexes.py
 uv.lock
 storage_data/*
 data/*
+data_wiki/

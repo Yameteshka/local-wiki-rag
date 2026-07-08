@@ -1,3 +1,9 @@
+import sys, os, time
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+
 import streamlit as st
 import requests
 import sqlite3
@@ -35,7 +41,7 @@ def get_metadata_by_ids(vector_results):
     enriched_results = []
 
     for item in vector_results:
-        cursor.execute("SELECT title, text FROM articles WHERE id = ?", (item["id"],))
+        cursor.execute("SELECT title, text FROM articles_meta WHERE id = ?", (item["id"],))
         row = cursor.fetchone()
         if row:
             enriched_results.append({
@@ -102,7 +108,7 @@ Context:
 """
 
     payload = {
-        "model": "gemma",
+        "model": "gemma3:1b",
         "prompt": f"{system_prompt}\n\nUser Query: {query}",
         "stream": False
     }
