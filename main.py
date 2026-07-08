@@ -13,7 +13,24 @@ from ui.embedder import get_embedding
 from ui.validation import ANNSearch, person4_index, sq8_store, corpus_f32
 
 DB_PATH = "wikipedia.db"
-ann = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
+
+
+@st.cache_resource
+def load_search_engines():
+    with st.spinner("Initializing Vector Engine & Loading Matrices..."):
+
+        sq8_store = SQ8Store()
+        sq8_store.load()
+
+        corpus_f32 = np.load(FLOAT32_STORE_PATH)
+
+        ann_engine = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
+
+    return ann_engine
+
+
+ann = load_search_engines()
+
 
 def run_vector_search(query_text: str, top_k: int = 3):
     query_vector = get_embedding(query_text)
