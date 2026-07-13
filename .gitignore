@@ -36,3 +36,12 @@ share/wheels/
 .installed.cfg
 *.egg
 MANIFEST
+tasks.md
+results.md
+.DS_Store
+data/embeds.npy
+prod/test_indexes.py
+uv.lock
+storage_data/*
+data/*
+data_wiki/

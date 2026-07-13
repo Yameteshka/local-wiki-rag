@@ -1,0 +1,184 @@
+import sys, os, time
+
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+os.environ["OMP_NUM_THREADS"] = "1"
+
+
+import streamlit as st
+import requests
+import sqlite3
+import json
+import numpy as np
+from ui.embedder import get_embedding
+from ui.validation import ANNSearch, person4_index, sq8_store, corpus_f32
+
+DB_PATH = "wikipedia.db"
+
+
+@st.cache_resource
+def load_search_engines():
+    with st.spinner("Initializing Vector Engine & Loading Matrices..."):
+
+        sq8_store = SQ8Store()
+        sq8_store.load()
+
+        corpus_f32 = np.load(FLOAT32_STORE_PATH)
+
+        ann_engine = ANNSearch(person4_index, sq8_store, corpus_fallback=corpus_f32)
+
+    return ann_engine
+
+
+ann = load_search_engines()
+
+
+def run_vector_search(query_text: str, top_k: int = 3):
+    query_vector = get_embedding(query_text)
+
+    ids, scores = ann.search(query_vector, top_k=top_k)
+
+    results = []
+    for doc_id, score in zip(ids, scores):
+        results.append({
+            "id": int(doc_id),
+            "score": float(score)
+        })
+
+    max_score = float(scores[0]) if len(scores) > 0 else 0.0
+
+    return {
+        "max_score": max_score,
+        "results": results
+    }
+
+
+def get_metadata_by_ids(vector_results):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    enriched_results = []
+
+    for item in vector_results:
+        cursor.execute("SELECT title, text FROM articles_meta WHERE id = ?", (item["id"],))
+        row = cursor.fetchone()
+        if row:
+            enriched_results.append({
+                "title": row[0],
+                "text": row[1],
+                "score": item["score"]
+            })
+    conn.close()
+    return enriched_results
+
+
+def builtin_bm25_search(query, limit=3):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("""
+            SELECT id, title, text, bm25(articles) as bm25_score 
+            FROM articles 
+            WHERE articles MATCH ? 
+            ORDER BY bm25_score 
+            LIMIT ?
+        """, (query, limit))
+        rows = cursor.fetchall()
+    except sqlite3.OperationalError:
+        cursor.execute("SELECT id, title, text, 0 FROM articles WHERE text LIKE ? LIMIT ?", (f"%{query}%", limit))
+        rows = cursor.fetchall()
+
+    conn.close()
+
+    return [{"title": r[1], "text": r[2], "score": abs(r[3])} for r in rows]
+
+
+# Fallback logic
+
+CONFIDENCE_THRESHOLD = 0.30
+
+
+def retrieve_context(query):
+    vector_data = run_vector_search(query)
+
+    if vector_data["max_score"] < CONFIDENCE_THRESHOLD:
+        st.warning("⚠️ Low semantic confidence. Falling back to keyword search.", icon="⚠️")
+        return builtin_bm25_search(query, limit=3)
+    else:
+        return get_metadata_by_ids(vector_data["results"])
+
+
+# Integration with OLLAMA
+
+MAX_CHARS_PER_CHUNK = 2500   # keep each source small so 3 chunks fit in num_ctx
+
+
+def generate_answer(query, context_chunks):
+    top_3 = context_chunks[:3]
+    context_text = "\n\n".join(
+        f"[Source {i + 1}]: {chunk['title']}\n{chunk['text'][:MAX_CHARS_PER_CHUNK]}"
+        for i, chunk in enumerate(top_3)
+    )
+
+    system_prompt = f"""You are a helpful and precise assistant.
+Answer the user's query IN ENGLISH ONLY, using strictly the facts provided in the Context below.
+You must cite the sources using the exact format [Source X] at the end of the relevant sentences.
+If the context does not contain the answer, say "I cannot answer this based on the provided local data."
+
+Context:
+{context_text}
+"""
+
+    payload = {
+        "model": "gemma3:4b",
+        "prompt": f"{system_prompt}\n\nUser Query: {query}",
+        "stream": False,
+        "options": {
+            "num_ctx": 8192,       # Gemma3 supports up to 128k; 8k is plenty for 3 truncated chunks
+            "num_predict": 512,    # cap the answer length
+            "temperature": 0.3,    # keep it grounded in the sources
+        },
+    }
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate", json=payload, timeout=180
+        )
+        response.raise_for_status()
+        answer = response.json().get("response", "").strip()
+        if not answer:
+            answer = "Model returned an empty response — try a shorter question or a smaller `num_ctx`."
+        return answer, top_3
+    except requests.exceptions.RequestException as e:
+        return f"Ollama Connection Error: {e}", top_3
+
+
+# UI interface streamlit
+
+st.set_page_config(page_title="Local Wiki RAG", layout="wide")
+st.title("📚 Local Wiki AI Search")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+if prompt := st.chat_input("Ask me about anything in the local Wikipedia..."):
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    with st.chat_message("assistant"):
+        with st.spinner("Searching local databases..."):
+            retrieved_chunks = retrieve_context(prompt)
+
+            answer, used_sources = generate_answer(prompt, retrieved_chunks)
+
+            st.markdown(answer)
+            st.session_state.messages.append({"role": "assistant", "content": answer})
+
+            st.markdown("### 📑 Sources Used")
+            for i, source in enumerate(used_sources):
+                with st.expander(f"[{i + 1}] {source['title']} (Score: {source['score']:.2f})"):
+                    st.write(source['text'])
