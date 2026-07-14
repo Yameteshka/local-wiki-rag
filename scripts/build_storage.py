@@ -89,6 +89,92 @@ def main():
     plt.show()
     plt.savefig("sq8_error_distribution.png", dpi=300)
 
+    # -------------------------------
+    # Per-dimension MSE
+    # -------------------------------
+    per_dim_mse = np.mean((original - reconstructed) ** 2, axis=0)
+
+    print(f"Average per-dimension MSE: {per_dim_mse.mean():.8f}")
+    print(f"Worst dimension: {np.argmax(per_dim_mse)}")
+    print(f"Worst MSE: {per_dim_mse.max():.8f}")
+
+    plt.figure(figsize=(10,5))
+    plt.plot(per_dim_mse)
+    plt.title("Per-Dimension Reconstruction Error (MSE)")
+    plt.xlabel("Embedding Dimension")
+    plt.ylabel("MSE")
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.savefig("sq8_per_dimension_mse.png", dpi=300)
+    plt.show()
+
+    # -------------------------------
+    # Value distribution
+    # -------------------------------
+
+    plt.figure(figsize=(10,5))
+
+    plt.hist(
+        original.ravel(),
+        bins=100,
+        alpha=0.6,
+        density=True,
+        label="Original float32"
+    )
+
+    plt.hist(
+        sq8_store.quantized_data.ravel(),
+        bins=100,
+        alpha=0.6,
+        density=True,
+        label="Quantized uint8"
+    )
+
+    plt.title("Value Distribution Before and After SQ8")
+    plt.xlabel("Value")
+    plt.ylabel("Density")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig("sq8_value_distribution.png", dpi=300)
+    plt.show()
+
+    # -------------------------------
+    # Retrieval throughput benchmark
+    # -------------------------------
+
+    print("\n[Storage Throughput Benchmark]")
+
+    sizes = [100, 1000, 10000]
+    repeats = 100
+
+    rng = np.random.default_rng(42)
+
+    for n in sizes:
+
+        indices = rng.choice(NUM_VECTORS, size=n, replace=False)
+
+        # warm-up
+        sq8_store.get_vectors(indices)
+
+        start = time.perf_counter()
+
+        for _ in range(repeats):
+            sq8_store.get_vectors(indices)
+
+        elapsed = time.perf_counter() - start
+
+        avg_ms = elapsed / repeats * 1000
+
+        throughput = n / (elapsed / repeats)
+
+        print(
+            f"{n:5d} vectors | "
+            f"{avg_ms:8.3f} ms | "
+            f"{throughput:,.0f} vectors/sec"
+        )
+
     # 5. Summary
     print("\n[5/5] Storage Build Summary:")
     print("-" * 30)
