@@ -2,6 +2,7 @@ import sys
 import time
 import numpy as np
 from pathlib import Path
+import tracemalloc
 
 # Adding project root to path to allow imports
 sys.path.append(str(Path(__file__).parent.parent))
@@ -80,4 +81,8 @@ def main():
     print("Storage build complete!")
 
 if __name__ == "__main__":
+    tracemalloc.start()
     main()
+    current, peak = tracemalloc.get_traced_memory()
+    print(f"Current memory: {current / 10**6:.2f} MB")
+    print(f"Peak memory: {peak / 10**6:.2f} MB")
