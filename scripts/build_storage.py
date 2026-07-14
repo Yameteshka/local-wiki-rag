@@ -69,6 +69,26 @@ def main():
     print(f"MSE: {mse:.8f}")
     print(f"Average Cosine Similarity: {avg_cosine:.6f}")
 
+    # 5. Graph Quantization error
+    import matplotlib.pyplot as plt
+
+    errors = (reconstructed - original).ravel()
+
+    print(f"Mean error: {errors.mean():.8f}")
+    print(f"Std error:  {errors.std():.8f}")
+    print(f"Max abs error: {np.abs(errors).max():.8f}")
+
+    plt.figure(figsize=(8, 5))
+    plt.hist(errors, bins=100)
+    plt.title("SQ8 Quantization Error Distribution")
+    plt.xlabel("Reconstruction Error")
+    plt.ylabel("Frequency")
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
+    plt.savefig("sq8_error_distribution.png", dpi=300)
+
     # 5. Summary
     print("\n[5/5] Storage Build Summary:")
     print("-" * 30)
